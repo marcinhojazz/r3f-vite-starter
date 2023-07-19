@@ -1,38 +1,50 @@
 import { useEffect, useState } from 'react';
 import { useThree } from '@react-three/fiber';
-import Marker from './Marker';
+import * as THREE from 'three';
+import { gsap } from 'gsap';
 
-function MarkerCreator() {
-  const { scene } = useThree();
-  const [markers, setMarkers] = useState([]);
+export function MarkerCreator({ setMarkers }) {
+  const { scene, gl, camera } = useThree();
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  const [lastClickTime, setLastClickTime] = useState(0);
 
   useEffect(() => {
     const onClick = (event) => {
-      event.stopPropagation();
+      const currentTime = window.performance.now();
+      if (currentTime - lastClickTime < 250) { // 250ms, adjust as needed
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        if (intersects.length > 0) {
+          const [first] = intersects;
+          setMarkers((prevMarkers) => [...prevMarkers, first.point]);
 
-      const tempVec = new THREE.Vector3();
-      tempVec.set(
-        (event.clientX / window.innerWidth) * 2 - 1,
-        -(event.clientY / window.innerHeight) * 2 + 1,
-        0.5
-      );
+          // Calculate direction from camera to marker
+          const direction = new THREE.Vector3().subVectors(first.point, camera.position).normalize();
 
-      tempVec.unproject(camera);
-      const dir = tempVec.sub(camera.position).normalize();
-      const distance = -camera.position.z / dir.z;
-      const pos = camera.position.clone().add(dir.multiplyScalar(distance));
+          // Calculate new camera position 1 unit away from marker
+          const newCameraPosition = new THREE.Vector3().copy(first.point).add(direction.multiplyScalar(-1));
 
-      setMarkers((prevMarkers) => [...prevMarkers, pos]);
+          gsap.to(camera.position, { 
+            x: newCameraPosition.x, 
+            y: newCameraPosition.y, 
+            z: newCameraPosition.z, 
+            duration: 1, // adjust as needed
+            onUpdate: () => camera.lookAt(first.point)
+          });
+        }
+      }
+      setLastClickTime(currentTime);
     };
 
-    scene.addEventListener('click', onClick);
+    window.addEventListener('click', onClick);
 
     return () => {
-      scene.removeEventListener('click', onClick);
+      window.removeEventListener('click', onClick);
     };
-  }, [scene]);
+  }, [scene, camera, setMarkers, lastClickTime]);
 
-  return markers.map((position, i) => <Marker key={i} position={position} />);
+  return null;
 }
-
-export default MarkerCreator;
